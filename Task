@@ -1,0 +1,77 @@
+1. CREATE TABLE Customer (
+    CustomerID INT PRIMARY KEY,
+    Name VARCHAR(100),
+    Address VARCHAR(255),
+    Email VARCHAR(100),
+    PhoneNumber VARCHAR(20)
+);
+
+2. CREATE TABLE Product (
+    ProductID INT PRIMARY KEY,
+    Name VARCHAR(100),
+    Description TEXT,
+    Price DECIMAL(10, 2),
+    Category VARCHAR(100)
+);
+
+3. CREATE TABLE [Order] (
+    OrderID INT PRIMARY KEY,
+    CustomerID INT,
+    ProductID INT,
+    Quantity INT,
+    OrderDate DATE,
+    TotalAmount DECIMAL(10, 2),
+    FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID),
+    FOREIGN KEY (ProductID) REFERENCES Product(ProductID)
+);
+4. CREATE TABLE Inventory (
+    ProductID INT,
+    Quantity INT,
+    Location VARCHAR(100),
+    PRIMARY KEY (ProductID, Location),
+    FOREIGN KEY (ProductID) REFERENCES Product(ProductID)
+);
+
+5. rom pyspark.sql import SparkSession
+
+spark = SparkSession.builder \
+    .appName("CDCExample") \
+    .getOrCreate()
+
+# Read data from SQL Server
+jdbc_url = "jdbc:sqlserver://<SQL_SERVER_NAME>;database=<DATABASE_NAME>"
+connection_properties = {
+    "user": "<USERNAME>",
+    "password": "<PASSWORD>",
+    "driver": "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+}
+
+df_customer = spark.read.jdbc(url=jdbc_url, table="Customer", properties=connection_properties)
+df_product = spark.read.jdbc(url=jdbc_url, table="Product", properties=connection_properties)
+df_order = spark.read.jdbc(url=jdbc_url, table="[Order]", properties=connection_properties)
+df_inventory = spark.read.jdbc(url=jdbc_url, table="Inventory", properties=connection_properties)
+
+# Implement CDC logic (example for customer table)
+df_customer.createOrReplaceTempView("customer")
+cdc_query = """
+SELECT * FROM customer WHERE _change_type IS NOT NULL
+"""
+df_cdc = spark.sql(cdc_query)
+
+# Write the changes to a Delta table or another destination
+df_cdc.write.format("delta").mode("append").save("/mnt/delta/customer_changes")
+
+import sendgrid
+from sendgrid.helpers.mail import Mail, Email, To, Content
+
+sg = sendgrid.SendGridAPIClient(api_key='SENDGRID_API_KEY')
+from_email = Email("from@example.com")
+to_email = To("to@example.com")
+subject = "ETL Pipeline Success Notification"
+content = Content("text/plain", "The ETL pipeline has run successfully and the table has been updated.")
+mail = Mail(from_email, to_email, subject, content)
+
+response = sg.client.mail.send.post(request_body=mail.get())
+print(response.status_code)
+print(response.body)
+print(response.headers)
